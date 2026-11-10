@@ -25,6 +25,8 @@ jobs:
           targets: aarch64-linux-android,x86_64-linux-android
       - uses: Swatinem/rust-cache@v2
       - uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools'
       - name: Install Android tools
         shell: pwsh
         run: |
