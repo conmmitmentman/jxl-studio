@@ -10,6 +10,10 @@ Rustで作った、JPEG XL（`.jxl`）への可逆変換と画像表示のため
 [Releases](https://github.com/conmmitmentman/jxl-studio/releases)のWindows x64版ZIPを展開して、`jxl-studio.exe`を起動してください。
 Rust・Python・`cjxl`などの別途インストールは不要です。CLIは`jxl-studio-cli.exe`です。
 
+**Android版:** [APKをダウンロード](https://github.com/conmmitmentman/jxl-studio/releases/download/android-v0.1.0/jxl-studio-android.apk)。Android 8.0以降のarm64 / x86_64端末に対応します。
+Androidでは、標準ファイル選択・複数画像の可逆変換・JXL表示・ピンチ拡大・JXL/PNG保存が利用できます。
+使い方と対応範囲は[Android版の説明](android/README.md)、ビルドと署名は[Androidビルド手順](android/BUILDING.md)を参照してください。
+
 ## 機能
 
 - JPEG / PNG / WebP / GIF / BMP / TIFF → JPEG XLの可逆変換

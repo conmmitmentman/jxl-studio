@@ -1,5 +1,9 @@
 /target/
 /dist/
+/android/build/
+*.apk
+*.p12
+*.jks
 *.jxl
 !tests/fixtures/*.jxl
 *.log

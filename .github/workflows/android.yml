@@ -1,0 +1,79 @@
+name: Android APK
+on:
+  push:
+    paths:
+      - 'android/**'
+      - 'src/lib.rs'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'vendor/**'
+      - '.github/workflows/android.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,x86_64-linux-android
+      - uses: Swatinem/rust-cache@v2
+      - uses: android-actions/setup-android@v3
+      - name: Install Android tools
+        shell: pwsh
+        run: |
+          sdkmanager 'platforms;android-36' 'build-tools;36.0.0' 'ndk;27.2.12479018'
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          "ANDROID_NDK_HOME=$env:ANDROID_HOME/ndk/27.2.12479018" >> $env:GITHUB_ENV
+      - run: cargo install cargo-ndk --version 4.1.2 --locked
+      - run: ./android/test-jni.ps1
+        shell: pwsh
+      - run: ./android/build-apk.ps1 -DebugSigning -BuildTests
+        shell: pwsh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-test-apks
+          path: |
+            dist/jxl-studio-android.apk
+            dist/jxl-studio-android-tests.apk
+            dist/android-SHA256SUMS.txt
+  emulator:
+    needs: build
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        api: [26, 35]
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: android-test-apks
+          path: apks
+      - name: Enable KVM for the runner
+        run: sudo chmod a+rw /dev/kvm
+      - uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: ${{ matrix.api }}
+          target: google_apis
+          arch: x86_64
+          profile: pixel_2
+          disable-animations: true
+          script: |
+            adb install -r apks/jxl-studio-android.apk
+            adb install -r apks/jxl-studio-android-tests.apk
+            adb shell am instrument -w com.jxlstudio.tests/com.jxlstudio.tests.CodecInstrumentation | tee instrumentation.txt
+            grep -q 'jxlResult=PASS' instrumentation.txt
+            adb exec-out screencap -p > android-screen.png
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: android-test-results-api-${{ matrix.api }}
+          path: |
+            instrumentation.txt
+            android-screen.png

@@ -1,0 +1,19 @@
+[package]
+name = "jxl-studio-android"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+description = "Android JNI bridge for the Rust JXL Studio codec"
+license = "MIT"
+publish = false
+
+[lib]
+name = "jxl_studio_android"
+crate-type = ["cdylib"]
+
+[dependencies]
+anyhow = "1"
+image = { version = "0.25", default-features = false, features = ["png"] }
+jni = "0.21"
+jxl-studio = { path = "../..", default-features = false }
+serde_json = "1"

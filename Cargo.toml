@@ -6,12 +6,27 @@ rust-version = "1.88"
 description = "JPEG XL lossless converter and viewer built with Rust"
 license = "MIT"
 
+[workspace]
+members = ["android/rust"]
+default-members = ["."]
+exclude = ["vendor/zune-jpegxl"]
+resolver = "3"
+
+[features]
+default = ["desktop"]
+desktop = ["dep:eframe", "dep:rfd"]
+
+[[bin]]
+name = "jxl-studio"
+path = "src/main.rs"
+required-features = ["desktop"]
+
 [dependencies]
 anyhow = "1"
-eframe = { version = "0.33", default-features = false, features = ["default_fonts", "glow", "x11", "wayland"] }
+eframe = { version = "0.33", optional = true, default-features = false, features = ["default_fonts", "glow", "x11", "wayland"] }
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp", "gif", "bmp", "tiff"] }
 jxl-oxide = { version = "0.12", features = ["moxcms"] }
-rfd = "0.15"
+rfd = { version = "0.15", optional = true }
 tempfile = "3"
 zune-core = "0.5"
 zune-jpegxl = "0.5"
