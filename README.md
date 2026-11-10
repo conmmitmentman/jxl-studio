@@ -3,6 +3,8 @@
 Rustで作った、JPEG XL（`.jxl`）への可逆変換と画像表示のためのデスクトップアプリです。
 日本語UIで画像をまとめて変換し、その場で変換前・変換後を確認できます。
 
+![JXL StudioでJPEG XLを表示](docs/screenshot.jpg)
+
 ## ダウンロード
 
 [Releases](https://github.com/conmmitmentman/jxl-studio/releases)のWindows x64版ZIPを展開して、`jxl-studio.exe`を起動してください。

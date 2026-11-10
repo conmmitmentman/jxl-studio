@@ -4,6 +4,7 @@ $packageName = 'jxl-studio-windows-x64'
 $packagePath = Join-Path (Get-Location) "dist/$packageName"
 New-Item -ItemType Directory -Path $packagePath -Force | Out-Null
 Copy-Item target/release/jxl-studio.exe,target/release/jxl-studio-cli.exe,README.md,LICENSE,THIRD_PARTY_NOTICES.md -Destination $packagePath
+if (Test-Path docs) { Copy-Item docs -Destination $packagePath -Recurse -Force }
 
 # Copy the licenses of the complete locked dependency graph, including embedded fonts.
 $metadata = cargo metadata --locked --format-version 1 | ConvertFrom-Json
@@ -19,6 +20,9 @@ foreach ($package in $metadata.packages) {
         $destination = Join-Path $licensePath $relative
         New-Item -ItemType Directory -Path (Split-Path $destination -Parent) -Force | Out-Null
         Copy-Item -LiteralPath $file.FullName -Destination $destination -Force
+        if ((Get-Item -LiteralPath $destination).LastWriteTime.Year -lt 1980) {
+            (Get-Item -LiteralPath $destination).LastWriteTime = [datetime]'1980-01-01'
+        }
     }
 }
 Compress-Archive -Path "$packagePath/*" -DestinationPath "dist/$packageName.zip" -Force
