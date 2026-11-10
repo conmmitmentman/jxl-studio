@@ -1,0 +1,6 @@
+/target/
+/dist/
+*.jxl
+!tests/fixtures/*.jxl
+*.log
+
