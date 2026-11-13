@@ -1,11 +1,14 @@
 # JXL Studio for Android
 
+**日本語** | [English](README.en.md)
+
 JPEG・PNG・WebP・GIF・BMP・TIFFからJPEG XLへ可逆変換し、JXLをアプリ内で表示するAndroidアプリです。
 画面とファイル選択はAndroidネイティブ、エンコード・デコードはデスクトップ版と同じRustコードです。
+表示言語はアプリの **日本語 / English** から切り替えられます。
 
 ## インストールと使い方
 
-1. [署名済みAPK](https://github.com/conmmitmentman/jxl-studio/releases/download/android-v0.1.0/jxl-studio-android.apk)を端末へダウンロードし、Androidのインストーラーで開きます。
+1. [署名済みAPK](https://github.com/conmmitmentman/jxl-studio/releases/download/android-v0.1.1/jxl-studio-android.apk)を端末へダウンロードし、Androidのインストーラーで開きます。
 2. **画像を開く**から画像を選びます。ファイル選択画面で複数選択もできます。JXLはそのまま表示できます。
 3. JPEG・PNG等は**JXLへ一括変換**で変換します。上の一覧から表示する画像を切り替えられます。
 4. **JXLを保存**で選択中の変換結果を端末に書き出します。**PNGに保存**も利用できます。

@@ -53,13 +53,15 @@ public final class MainActivity extends Activity {
     private static final int MINT = Color.rgb(104, 231, 190);
     private static final long MAX_IMPORT_BYTES = 128L * 1024 * 1024;
     private Session session;
-    private Button open, convert, saveJxl, savePng, original, converted;
-    private TextView status, details;
+    private Button open, convert, saveJxl, savePng, original, converted, fitButton, actualButton;
+    private Button japaneseLanguage, englishLanguage;
+    private TextView status, details, subtitle, note;
     private ProgressBar progress;
     private Spinner files;
     private ZoomImageView viewer;
     private ArrayAdapter<String> adapter;
     private boolean updating;
+    private boolean english;
 
     static final class Item {
         final File input;
@@ -98,6 +100,7 @@ public final class MainActivity extends Activity {
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
+        english = UiLanguage.loadEnglish(this);
         Object retained = getLastNonConfigurationInstance();
         if (retained instanceof Session) session = (Session) retained;
         else if (state != null && restoreSession(state)) {
@@ -200,8 +203,15 @@ public final class MainActivity extends Activity {
         }
         TextView heading = label("JXL STUDIO", 25, MINT);
         heading.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-        root.addView(heading);
-        root.addView(label("JPEG XL 変換 & ビューアー  /  Rust", 12, MUTED));
+        LinearLayout header = row();
+        header.addView(heading, new LinearLayout.LayoutParams(0, -2, 1));
+        japaneseLanguage = button("日本語", false, () -> changeLanguage(false));
+        englishLanguage = button("English", false, () -> changeLanguage(true));
+        header.addView(japaneseLanguage, new LinearLayout.LayoutParams(dp(66), dp(42)));
+        header.addView(englishLanguage, new LinearLayout.LayoutParams(dp(66), dp(42)));
+        root.addView(header);
+        subtitle = label("JPEG XL 変換 & ビューアー  /  Rust", 12, MUTED);
+        root.addView(subtitle);
 
         LinearLayout actions = row();
         open = button("画像を開く", true, this::pickImages);
@@ -210,7 +220,7 @@ public final class MainActivity extends Activity {
         root.addView(actions);
 
         files = new Spinner(this);
-        files.setContentDescription("画像の一覧");
+        files.setContentDescription(t("画像の一覧"));
         adapter = new ArrayAdapter<String>(this, android.R.layout.simple_spinner_item, new ArrayList<>()) {
             @Override public View getView(int position, View view, android.view.ViewGroup parent) {
                 TextView text = (TextView) super.getView(position, view, parent);
@@ -233,14 +243,15 @@ public final class MainActivity extends Activity {
         original = button("元画像", false, () -> { session.sourceView = true; loadPreview(); });
         converted = button("変換後", false, () -> { session.sourceView = false; loadPreview(); });
         addButton(modes, original); addButton(modes, converted);
-        Button fit = button("全体", false, () -> viewer.fit());
-        Button actual = button("100%", false, () -> viewer.actualSize());
-        addButton(modes, fit); addButton(modes, actual);
+        fitButton = button("全体", false, () -> viewer.fit());
+        actualButton = button("100%", false, () -> viewer.actualSize());
+        addButton(modes, fitButton); addButton(modes, actualButton);
         root.addView(modes);
 
         viewer = new ZoomImageView(this);
         viewer.setMinimumHeight(dp(200));
-        viewer.setContentDescription("画像ビューアー。ピンチで拡大、ドラッグで移動、ダブルタップで全体表示切り替え");
+        viewer.setContentDescription(t("画像ビューアー。ピンチで拡大、ドラッグで移動、ダブルタップで全体表示切り替え"));
+        viewer.setEmptyText(t("JPEG XLを、そのまま開く。"));
         LinearLayout.LayoutParams imageParams = new LinearLayout.LayoutParams(-1, dp(200), 1);
         imageParams.topMargin = dp(8); imageParams.bottomMargin = dp(4);
         root.addView(viewer, imageParams);
@@ -259,7 +270,7 @@ public final class MainActivity extends Activity {
         savePng = button("PNGに保存", false, () -> prepareExport(true));
         addButton(saves, saveJxl); addButton(saves, savePng);
         root.addView(saves);
-        TextView note = label("変換後は「保存」で端末に書き出してください。\n可逆圧縮のみ。メタデータは保持しません。", 10, MUTED);
+        note = label("変換後は「保存」で端末に書き出してください。\n可逆圧縮のみ。メタデータは保持しません。", 10, MUTED);
         note.setPadding(0, dp(6), 0, 0);
         root.addView(note);
         ScrollView scroll = new ScrollView(this);
@@ -269,10 +280,11 @@ public final class MainActivity extends Activity {
     }
 
     private void refresh() {
+        refreshLanguage();
         updating = true;
         adapter.clear();
-        if (session.items.isEmpty()) adapter.add("画像がありません");
-        else for (Item item : session.items) adapter.add(item.name + "  —  " + item.state);
+        if (session.items.isEmpty()) adapter.add(t("画像がありません"));
+        else for (Item item : session.items) adapter.add(item.name + "  —  " + t(item.state));
         adapter.notifyDataSetChanged();
         if (session.selected >= 0) files.setSelection(session.selected, false);
         updating = false;
@@ -281,18 +293,41 @@ public final class MainActivity extends Activity {
         for (Item candidate : session.items) if (!isJxl(candidate.input) && candidate.output == null) canConvert = true;
         open.setEnabled(!session.busy);
         files.setEnabled(!session.busy && !session.items.isEmpty());
-        convert.setText(session.converting ? (session.cancel ? "現在の画像後に停止" : "変換を停止") : "JXLへ一括変換");
+        convert.setText(t(session.converting ? (session.cancel ? "現在の画像後に停止" : "変換を停止") : "JXLへ一括変換"));
         convert.setEnabled(session.converting ? !session.cancel : (!session.busy && canConvert));
         original.setEnabled(!session.busy && item != null && item.output != null);
         converted.setEnabled(!session.busy && item != null && item.output != null);
         saveJxl.setEnabled(!session.busy && item != null && (item.output != null || isJxl(item.input)));
         savePng.setEnabled(!session.busy && item != null && session.bitmap != null);
         progress.setVisibility(session.busy ? View.VISIBLE : View.INVISIBLE);
-        status.setText(session.message);
+        status.setText(t(session.message));
         viewer.setImage(session.bitmap, session.width, session.height);
-        details.setText(session.bitmap == null ? "ピンチで拡大・ドラッグで移動" :
-                session.width + " × " + session.height + " px  ·  ピンチで拡大  ·  プレビュー最大2048px");
+        details.setText(t(session.bitmap == null ? "ピンチで拡大・ドラッグで移動" :
+                session.width + " × " + session.height + " px  ·  ピンチで拡大  ·  プレビュー最大2048px"));
     }
+
+    private void changeLanguage(boolean useEnglish) {
+        if (session.busy) return;
+        english = useEnglish;
+        UiLanguage.saveEnglish(this, english);
+        refresh();
+    }
+
+    private void refreshLanguage() {
+        subtitle.setText(t("JPEG XL 変換 & ビューアー  /  Rust"));
+        open.setText(t("画像を開く")); original.setText(t("元画像")); converted.setText(t("変換後"));
+        fitButton.setText(t("全体")); saveJxl.setText(t("JXLを保存")); savePng.setText(t("PNGに保存"));
+        files.setContentDescription(t("画像の一覧"));
+        viewer.setContentDescription(t("画像ビューアー。ピンチで拡大、ドラッグで移動、ダブルタップで全体表示切り替え"));
+        viewer.setEmptyText(t("JPEG XLを、そのまま開く。"));
+        note.setText(t("変換後は「保存」で端末に書き出してください。\n可逆圧縮のみ。メタデータは保持しません。"));
+        japaneseLanguage.setEnabled(!session.busy); englishLanguage.setEnabled(!session.busy);
+        japaneseLanguage.setTextColor(english ? TEXT : MINT); englishLanguage.setTextColor(english ? MINT : TEXT);
+        japaneseLanguage.setAlpha(session.busy ? .5f : 1f); englishLanguage.setAlpha(session.busy ? .5f : 1f);
+        japaneseLanguage.setContentDescription(t("日本語")); englishLanguage.setContentDescription("English");
+    }
+
+    private String t(String value) { return UiLanguage.translate(value, english); }
 
     private Item selected() {
         return session.selected >= 0 && session.selected < session.items.size() ? session.items.get(session.selected) : null;
@@ -487,13 +522,17 @@ public final class MainActivity extends Activity {
 
     private void showError(String text) {
         session.message = text; refresh();
-        new AlertDialog.Builder(this).setTitle("確認してください").setMessage(text).setPositiveButton("OK", null).show();
+        new AlertDialog.Builder(this).setTitle(t("確認してください")).setMessage(t(text)).setPositiveButton("OK", null).show();
     }
 
     private static JSONObject checked(String json) throws Exception {
         if (json == null) throw new Exception("Rustから応答がありません");
         JSONObject value = new JSONObject(json);
-        if (!value.optBoolean("ok")) throw new Exception(value.optString("error", "画像処理に失敗しました"));
+        if (!value.optBoolean("ok")) {
+            String error = value.optString("error", "画像処理に失敗しました");
+            UiLanguage.registerNativeError(error, value.optString("errorEnglish", ""));
+            throw new Exception(error);
+        }
         return value;
     }
 
@@ -508,11 +547,11 @@ public final class MainActivity extends Activity {
     }
 
     private TextView label(String text, float size, int color) {
-        TextView view = new TextView(this); view.setText(text); view.setTextSize(size); view.setTextColor(color); return view;
+        TextView view = new TextView(this); view.setText(t(text)); view.setTextSize(size); view.setTextColor(color); return view;
     }
     private LinearLayout row() { LinearLayout layout = new LinearLayout(this); layout.setGravity(Gravity.CENTER_VERTICAL); return layout; }
     private Button button(String text, boolean accent, Runnable action) {
-        Button button = new Button(this); button.setText(text); button.setAllCaps(false); button.setTextSize(12);
+        Button button = new Button(this); button.setText(t(text)); button.setAllCaps(false); button.setTextSize(12);
         button.setMinHeight(dp(44)); button.setMinimumWidth(0); button.setMinWidth(0); button.setPadding(dp(3), 0, dp(3), 0);
         button.setBackgroundTintList(new ColorStateList(new int[][]{{-android.R.attr.state_enabled}, {}},
                 new int[]{Color.rgb(35, 48, 57), accent ? MINT : Color.rgb(41, 56, 73)}));

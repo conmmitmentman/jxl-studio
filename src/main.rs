@@ -5,6 +5,7 @@ mod ui;
 fn main() -> eframe::Result {
     let options = eframe::NativeOptions {
         viewport: eframe::egui::ViewportBuilder::default()
+            .with_title(jxl_studio::language::Language::startup().window_title())
             .with_inner_size([1040.0, 620.0])
             .with_min_inner_size([880.0, 560.0])
             .with_clamp_size_to_monitor_size(true),
@@ -12,7 +13,7 @@ fn main() -> eframe::Result {
         ..Default::default()
     };
     eframe::run_native(
-        "JXL Studio — 画像変換 & ビューアー",
+        "JXL Studio",
         options,
         Box::new(|cc| Ok(Box::new(ui::Studio::new(cc)))),
     )

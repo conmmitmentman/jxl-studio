@@ -19,6 +19,7 @@ public final class ZoomImageView extends View {
     private int sourceWidth;
     private float scale = 1, x, y;
     private boolean fitting = true;
+    private String emptyText = "Open JPEG XL images.";
 
     public ZoomImageView(Context context) {
         super(context);
@@ -43,6 +44,9 @@ public final class ZoomImageView extends View {
     public void setImage(Bitmap value, int width, int height) {
         if (bitmap == value) return;
         bitmap = value; sourceWidth = width; fitting = true; fit();
+    }
+    public void setEmptyText(String value) {
+        if (!value.equals(emptyText)) { emptyText = value; invalidate(); }
     }
     public void fit() {
         fitting = true;
@@ -75,7 +79,7 @@ public final class ZoomImageView extends View {
         if (bitmap == null) {
             paint.setColor(Color.rgb(156, 174, 192));
             paint.setTextAlign(Paint.Align.CENTER); paint.setTextSize(16 * getResources().getDisplayMetrics().scaledDensity);
-            canvas.drawText("JPEG XLを、そのまま開く。", getWidth() / 2f, getHeight() / 2f, paint); return;
+            canvas.drawText(emptyText, getWidth() / 2f, getHeight() / 2f, paint); return;
         }
         canvas.save(); canvas.clipRect(x, y, x + bitmap.getWidth() * scale, y + bitmap.getHeight() * scale);
         int cell = Math.max(12, Math.round(16 * getResources().getDisplayMetrics().density));

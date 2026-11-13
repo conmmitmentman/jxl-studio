@@ -1,6 +1,7 @@
 package com.jxlstudio.app;
 
 import java.awt.image.BufferedImage;
+import java.awt.image.DataBuffer;
 import java.io.File;
 import java.nio.file.Files;
 import javax.imageio.ImageIO;
@@ -34,7 +35,16 @@ public final class JniSmokeTest {
         success(NativeCodec.nativePreview(jxl.getPath(), preview.getPath(), 2048));
         same(pixels, ImageIO.read(preview));
         success(NativeCodec.nativeExportPng(jxl.getPath(), exported.getPath()));
-        same(pixels, ImageIO.read(exported));
+        BufferedImage exportedPixels = ImageIO.read(exported);
+        same(pixels, exportedPixels);
+        if (exportedPixels.getRaster().getDataBuffer().getDataType() != DataBuffer.TYPE_USHORT) throw new AssertionError("Expected 16-bit PNG samples");
+        for (int y = 0; y < 19; y++) for (int x = 0; x < 17; x++) {
+            int argb = pixels.getRGB(x, y);
+            int[] expected = {(argb >>> 16) & 255, (argb >>> 8) & 255, argb & 255, argb >>> 24};
+            for (int c = 0; c < 4; c++) if (exportedPixels.getRaster().getSample(x, y, c) != expected[c] * 257) {
+                throw new AssertionError("16-bit PNG sample changed at " + x + "," + y + " channel " + c);
+            }
+        }
         failure(NativeCodec.nativeConvert(input.getPath(), jxl.getPath()));
         failure(NativeCodec.nativeExportPng(jxl.getPath(), exported.getPath()));
         failure(NativeCodec.nativePreview(input.getPath(), input.getPath(), 2048));
@@ -46,6 +56,6 @@ public final class JniSmokeTest {
         File broken = new File(directory, "broken.jxl");
         Files.write(broken.toPath(), new byte[]{1, 2, 3});
         failure(NativeCodec.nativePreview(broken.getPath(), preview.getPath(), 2048));
-        System.out.println("JNI smoke test passed: conversion, RGBA pixels, preview, PNG export, Unicode, limits and no-clobber errors.");
+        System.out.println("JNI smoke test passed: conversion, RGBA pixels, preview, exact 16-bit PNG samples, Unicode, limits and no-clobber errors.");
     }
 }

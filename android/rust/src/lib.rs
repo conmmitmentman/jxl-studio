@@ -34,12 +34,19 @@ fn respond(env: &mut JNIEnv<'_>, action: impl FnOnce(&mut JNIEnv<'_>) -> Result<
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| action(env)));
     let payload = match result {
         Ok(Ok(value)) => value,
-        Ok(Err(error)) => json!({"ok": false, "error": format!("{error:#}")}),
+        Ok(Err(error)) => {
+            let message = format!("{error:#}");
+            json!({"ok": false, "errorEnglish": jxl_studio::error_message_english(&message), "error": message})
+        }
         Err(_) => json!({
             "ok": false,
-            "error": "画像処理中にエラーが発生しました。別の画像をお試しください。"
+            "error": "画像処理中にエラーが発生しました。別の画像をお試しください。",
+            "errorEnglish": "Image processing failed. Please try another image."
         }),
     };
+    if env.exception_check().unwrap_or(true) {
+        return ptr::null_mut();
+    }
     match env.new_string(payload.to_string()) {
         Ok(value) => value.into_raw(),
         Err(_) => {

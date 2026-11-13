@@ -10,8 +10,12 @@ import android.graphics.Color;
 import android.os.Bundle;
 import android.util.Log;
 import android.view.View;
+import android.view.ViewGroup;
 import android.view.ViewTreeObserver;
+import android.widget.TextView;
+import android.widget.Spinner;
 import com.jxlstudio.app.NativeCodec;
+import com.jxlstudio.app.UiLanguage;
 import org.json.JSONObject;
 
 import java.io.File;
@@ -41,7 +45,7 @@ public final class CodecInstrumentation extends Instrumentation {
             result.putString("jxlResult", "PASS");
             result.putString("stream", "jxlResult=PASS\nJXL Android instrumentation passed: real JNI conversion, "
                     + "dimensions, transparent and opaque pixels, preview, PNG export, Japanese paths, "
-                    + "no-overwrite errors, preview size limits, and MainActivity launch.\n");
+                    + "no-overwrite errors, preview size limits, MainActivity launch, and persistent Japanese/English switching.\n");
             finish(Activity.RESULT_OK, result);
         } catch (Throwable failure) {
             result.putString("jxlResult", "FAIL");
@@ -178,12 +182,69 @@ public final class CodecInstrumentation extends Instrumentation {
                     check(!activity.isFinishing() && !activity.isDestroyed(), "MainActivity closed during startup");
                     check(decor.getWidth() > 0 && decor.getHeight() > 0, "MainActivity did not lay out its UI");
                     check(decor.isShown(), "MainActivity decor is not visible");
+                    View japanese = findText(decor, "日本語");
+                    check(japanese != null && japanese.performClick(), "Japanese language control is unavailable");
+                    check(findText(decor, "画像を開く") != null, "Japanese labels did not appear");
+                    Spinner fileList = findSpinner(decor);
+                    check(fileList != null && "画像がありません".equals(fileList.getAdapter().getItem(0).toString()),
+                            "Japanese list state did not appear");
+                    View english = findText(decor, "English");
+                    check(english != null && english.performClick(), "English language control is unavailable");
+                    check(findText(decor, "Open images") != null, "English labels did not appear");
+                    check("No images".equals(fileList.getAdapter().getItem(0).toString()), "English list state did not appear");
+                    check("en".equals(activity.getSharedPreferences(UiLanguage.PREFERENCES, Context.MODE_PRIVATE)
+                            .getString(UiLanguage.KEY, "")), "The language preference was not saved");
+                    check(UiLanguage.loadEnglish(activity), "A fresh language preference read did not return English");
+                    check("Converting: 元画像.png".equals(UiLanguage.translate("変換中: 元画像.png", true)),
+                            "The Japanese image name changed during translation");
+                    UiLanguage.registerNativeError("画像処理に失敗: 元画像.png", "Image processing failed: 元画像.png");
+                    check("Error: Image processing failed: 元画像.png".equals(
+                            UiLanguage.translate("エラー: 画像処理に失敗: 元画像.png", true)),
+                            "Native error translation altered the image name");
                 } catch (Throwable failure) {
                     uiFailure[0] = failure;
                 }
             }
         });
         if (uiFailure[0] != null) throw new AssertionError("MainActivity UI smoke test failed", uiFailure[0]);
+        runOnMainSync(() -> activity.finish());
+        waitForIdleSync();
+        final Activity restarted = startActivitySync(intent);
+        check(restarted != null && restarted != activity, "MainActivity did not restart");
+        waitForIdleSync();
+        final Throwable[] restartFailure = new Throwable[1];
+        runOnMainSync(() -> {
+            try {
+                check(findText(restarted.getWindow().getDecorView(), "Open images") != null,
+                        "English preference was not restored after restarting MainActivity");
+                check(UiLanguage.loadEnglish(restarted), "Restarted activity lost the saved language");
+            } catch (Throwable failure) { restartFailure[0] = failure; }
+        });
+        if (restartFailure[0] != null) throw new AssertionError("Language persistence test failed", restartFailure[0]);
+    }
+
+    private static Spinner findSpinner(View root) {
+        if (root instanceof Spinner) return (Spinner) root;
+        if (root instanceof ViewGroup) {
+            ViewGroup group = (ViewGroup) root;
+            for (int i = 0; i < group.getChildCount(); i++) {
+                Spinner found = findSpinner(group.getChildAt(i));
+                if (found != null) return found;
+            }
+        }
+        return null;
+    }
+
+    private static View findText(View root, String text) {
+        if (root instanceof TextView && text.equals(((TextView) root).getText().toString())) return root;
+        if (root instanceof ViewGroup) {
+            ViewGroup group = (ViewGroup) root;
+            for (int i = 0; i < group.getChildCount(); i++) {
+                View found = findText(group.getChildAt(i), text);
+                if (found != null) return found;
+            }
+        }
+        return null;
     }
 
     private static Bitmap decode(File file) {

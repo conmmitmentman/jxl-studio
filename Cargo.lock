@@ -1635,7 +1635,7 @@ dependencies = [
 
 [[package]]
 name = "jxl-studio"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "eframe",
@@ -1649,7 +1649,7 @@ dependencies = [
 
 [[package]]
 name = "jxl-studio-android"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "image",

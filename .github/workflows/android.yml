@@ -1,6 +1,7 @@
 name: Android APK
 on:
   push:
+    branches: [main]
     paths:
       - 'android/**'
       - 'src/lib.rs'
@@ -9,6 +10,9 @@ on:
       - 'vendor/**'
       - '.github/workflows/android.yml'
   workflow_dispatch:
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
 permissions:
   contents: read
 jobs:
@@ -71,6 +75,8 @@ jobs:
             adb install -r apks/jxl-studio-android-tests.apk
             adb shell am instrument -w com.jxlstudio.tests/com.jxlstudio.tests.CodecInstrumentation | tee instrumentation.txt
             grep -q 'jxlResult=PASS' instrumentation.txt
+            adb shell am start -n com.jxlstudio.app/.MainActivity
+            adb shell sleep 2
             adb exec-out screencap -p > android-screen.png
       - uses: actions/upload-artifact@v4
         if: always()

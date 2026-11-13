@@ -1,4 +1,6 @@
 //! Codec and safe file operations shared by the GUI and CLI.
+pub mod language;
+pub use language::error_message_english;
 use std::{
     fs,
     io::Write,

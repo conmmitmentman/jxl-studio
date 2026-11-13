@@ -9,6 +9,7 @@ use std::{
 };
 
 use eframe::egui::{self, Color32, RichText, Vec2};
+use jxl_studio::language::Language;
 use jxl_studio::{ConversionReport, available_output, format_bytes, is_convertible, is_jxl};
 
 const ACCENT: Color32 = Color32::from_rgb(104, 231, 190);
@@ -37,6 +38,72 @@ enum Event {
     Exported(Result<PathBuf, String>),
 }
 
+enum Status {
+    Idle,
+    Converting(PathBuf),
+    Finished {
+        stopped: bool,
+        processed: usize,
+        total: usize,
+        failures: usize,
+    },
+    Exported(PathBuf),
+}
+
+impl Status {
+    fn render(&self, language: Language) -> String {
+        match self {
+            Self::Idle => language
+                .text(
+                    "画像を追加すると、ここに進行状況が表示されます",
+                    "Add images to see progress here",
+                )
+                .into(),
+            Self::Converting(path) => format!(
+                "{}: {}",
+                language.text("変換中", "Converting"),
+                display_name(path)
+            ),
+            Self::Finished {
+                stopped,
+                processed,
+                total,
+                failures,
+            } => format!(
+                "{}: {processed} / {total} {} · {failures} {}",
+                if *stopped {
+                    language.text("停止しました", "Stopped")
+                } else {
+                    language.text("変換が完了しました", "Conversion complete")
+                },
+                language.text("件処理済み", "processed"),
+                language.text("件エラー", "failed")
+            ),
+            Self::Exported(path) => format!(
+                "{}: {}",
+                language.text("PNGを保存しました", "PNG saved"),
+                path.display()
+            ),
+        }
+    }
+}
+
+enum UiError {
+    Rejected(usize),
+    Processing(String),
+    Preference(String),
+}
+
+impl UiError {
+    fn render(&self, language: Language) -> String {
+        match self {
+            Self::Rejected(count) => format!("{count} {}", language.text("件を追加できませんでした。対応する画像ファイルを選択してください。フォルダーは追加できません。", "items could not be added. Select supported image files; folders cannot be added.")),
+            Self::Processing(message) => language.error(message),
+            Self::Preference(message) => format!("{}: {message}", language.text("言語設定を保存できませんでした", "Could not save the language preference")),
+        }
+    }
+}
+
 pub struct Studio {
     items: Vec<Item>,
     selected: Option<usize>,
@@ -58,8 +125,9 @@ pub struct Studio {
     fit: bool,
     zoom: f32,
     checkerboard: bool,
-    message: String,
-    error: Option<String>,
+    language: Language,
+    message: Status,
+    error: Option<UiError>,
 }
 
 impl Studio {
@@ -79,6 +147,8 @@ impl Studio {
         });
         install_japanese_font(ctx);
         let (tx, rx) = mpsc::channel();
+        let (language, paths) = Language::arguments(std::env::args_os().skip(1).collect());
+        ctx.send_viewport_cmd(egui::ViewportCommand::Title(language.window_title().into()));
         let mut app = Self {
             items: Vec::new(),
             selected: None,
@@ -100,10 +170,11 @@ impl Studio {
             fit: true,
             zoom: 1.0,
             checkerboard: true,
-            message: "画像を追加すると、ここに進行状況が表示されます".into(),
+            language,
+            message: Status::Idle,
             error: None,
         };
-        app.add_paths(std::env::args_os().skip(1).map(PathBuf::from).collect());
+        app.add_paths(paths.into_iter().map(PathBuf::from).collect());
         app
     }
 
@@ -132,9 +203,7 @@ impl Studio {
             self.select(index);
         }
         if rejected > 0 {
-            self.error = Some(format!(
-                "{rejected}件を追加できませんでした。対応する画像ファイルを選択してください。フォルダーは追加できません。"
-            ));
+            self.error = Some(UiError::Rejected(rejected));
         }
     }
 
@@ -231,7 +300,7 @@ impl Studio {
             match event {
                 Event::Started(i) => {
                     self.items[i].state = State::Working;
-                    self.message = format!("変換中: {}", display_name(&self.items[i].path));
+                    self.message = Status::Converting(self.items[i].path.clone());
                 }
                 Event::Converted(i, result) => {
                     self.processed += 1;
@@ -255,17 +324,12 @@ impl Studio {
                         .iter()
                         .filter(|i| matches!(i.state, State::Failed(_)))
                         .count();
-                    self.message = format!(
-                        "{}: {} / {}件処理済み・エラー{}件",
-                        if self.cancel.load(Ordering::Relaxed) {
-                            "停止しました"
-                        } else {
-                            "変換が完了しました"
-                        },
-                        self.processed,
-                        self.total,
-                        failures
-                    );
+                    self.message = Status::Finished {
+                        stopped: self.cancel.load(Ordering::Relaxed),
+                        processed: self.processed,
+                        total: self.total,
+                        failures,
+                    };
                 }
                 Event::Preview(generation, path, result) => {
                     self.preview_busy = false;
@@ -287,15 +351,15 @@ impl Studio {
                             self.preview_path = Some(path);
                         }
                         Err(error) => {
-                            self.error = Some(error);
+                            self.error = Some(UiError::Processing(error));
                         }
                     }
                 }
                 Event::Exported(result) => {
                     self.export_busy = false;
                     match result {
-                        Ok(path) => self.message = format!("PNGを保存しました: {}", path.display()),
-                        Err(error) => self.error = Some(error),
+                        Ok(path) => self.message = Status::Exported(path),
+                        Err(error) => self.error = Some(UiError::Processing(error)),
                     }
                 }
             }
@@ -304,6 +368,7 @@ impl Studio {
     }
 
     fn export(&mut self, ctx: &egui::Context) {
+        let l = self.language;
         if self.export_busy {
             return;
         }
@@ -312,7 +377,10 @@ impl Studio {
         };
         let filename = input.with_extension("png");
         let Some(output) = rfd::FileDialog::new()
-            .set_title("PNGとして保存（既存ファイルは上書きしません）")
+            .set_title(l.text(
+                "PNGとして保存（既存ファイルは上書きしません）",
+                "Save as PNG (existing files are never overwritten)",
+            ))
             .add_filter("PNG", &["png"])
             .set_file_name(display_name(&filename))
             .save_file()
@@ -332,6 +400,7 @@ impl Studio {
     }
 
     fn header(&mut self, ctx: &egui::Context) {
+        let l = self.language;
         egui::TopBottomPanel::top("header")
             .frame(
                 egui::Frame::new()
@@ -343,7 +412,10 @@ impl Studio {
                     ui.label(RichText::new("JXL").size(28.0).strong().color(ACCENT));
                     ui.label(RichText::new("STUDIO").size(25.0).strong());
                     ui.add_space(12.0);
-                    ui.label(RichText::new("画像を、JPEG XLへ。").color(MUTED));
+                    ui.label(
+                        RichText::new(l.text("画像を、JPEG XLへ。", "Your images. JPEG XL."))
+                            .color(MUTED),
+                    );
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         ui.label(
                             RichText::new(format!("v{}", env!("CARGO_PKG_VERSION")))
@@ -351,21 +423,51 @@ impl Studio {
                                 .color(MUTED),
                         );
                         if ui
-                            .add_enabled(!self.busy, egui::Button::new("画像を追加  /  開く"))
+                            .add_enabled(
+                                !self.busy,
+                                egui::Button::new(l.text("画像を追加 / 開く", "Add / open images")),
+                            )
                             .clicked()
                         {
                             self.pick_files();
+                        }
+                        for (language, label) in [
+                            (Language::English, "English"),
+                            (Language::Japanese, "日本語"),
+                        ] {
+                            if ui
+                                .selectable_label(self.language == language, label)
+                                .on_hover_text(
+                                    l.text("表示言語を切り替えます", "Change display language"),
+                                )
+                                .clicked()
+                            {
+                                self.set_language(language, ctx);
+                            }
                         }
                     });
                 });
             });
     }
 
+    fn set_language(&mut self, language: Language, ctx: &egui::Context) {
+        if self.language == language {
+            return;
+        }
+        self.language = language;
+        ctx.send_viewport_cmd(egui::ViewportCommand::Title(language.window_title().into()));
+        if let Err(error) = language.save() {
+            self.error = Some(UiError::Preference(error.to_string()));
+        }
+        ctx.request_repaint();
+    }
+
     fn pick_files(&mut self) {
+        let l = self.language;
         if let Some(paths) = rfd::FileDialog::new()
-            .set_title("画像を追加 / JPEG XLを開く")
+            .set_title(l.text("画像を追加 / JPEG XLを開く", "Add images / open JPEG XL"))
             .add_filter(
-                "画像",
+                l.text("画像", "Images"),
                 &[
                     "jpg", "jpeg", "png", "webp", "gif", "bmp", "tif", "tiff", "jxl",
                 ],
@@ -377,24 +479,27 @@ impl Studio {
     }
 
     fn sidebar(&mut self, ctx: &egui::Context) {
+        let l = self.language;
         egui::SidePanel::left("files").default_width(320.0).min_width(260.0).max_width(450.0)
             .show(ctx, |ui| {
+                let file_list_height = (ui.available_height() - 340.0).max(80.0);
+                egui::ScrollArea::vertical().id_salt("sidebar_content").auto_shrink([false, false]).show(ui, |ui| {
                 ui.add_space(16.0);
-                ui.horizontal(|ui| { ui.heading("ライブラリ"); ui.label(RichText::new(format!("{}件", self.items.len())).color(MUTED)); });
+                ui.horizontal_wrapped(|ui| { ui.heading(l.text("ライブラリ", "Library")); ui.label(RichText::new(format!("{} {}", self.items.len(), l.text("件", "items"))).color(MUTED)); });
                 ui.label(RichText::new("JPEG · PNG · WebP · GIF · BMP · TIFF · JXL").small().color(MUTED));
                 ui.add_space(8.0);
                 let mut clicked = None;
-                egui::ScrollArea::vertical().id_salt("files_scroll").max_height((ui.available_height() - 305.0).max(80.0)).show(ui, |ui| {
+                egui::ScrollArea::vertical().id_salt("files_scroll").max_height(file_list_height).show(ui, |ui| {
                     if self.items.is_empty() {
                         ui.add_space(24.0);
-                        ui.label(RichText::new("画像をドロップして追加\nまたは上のボタンから選択").color(MUTED));
+                        ui.label(RichText::new(l.text("画像をドロップして追加\nまたは上のボタンから選択", "Drop images here\nor use the button above")).color(MUTED));
                     }
                     for (i, item) in self.items.iter().enumerate() {
                         let (status, color) = match &item.state {
-                            State::Ready => (if is_jxl(&item.path) { "JPEG XL / 表示用".to_string() } else { "変換待ち".to_string() }, MUTED),
-                            State::Working => ("変換中…".to_string(), ACCENT),
-                            State::Done(r) => (format!("完了  {}", format_bytes(r.output_bytes)), ACCENT),
-                            State::Failed(_) => ("エラー / 再試行できます".to_string(), Color32::LIGHT_RED),
+                            State::Ready => (if is_jxl(&item.path) { l.text("JPEG XL / 表示用", "JPEG XL / view only").to_string() } else { l.text("変換待ち", "Ready to convert").to_string() }, MUTED),
+                            State::Working => (l.text("変換中…", "Converting…").to_string(), ACCENT),
+                            State::Done(r) => (format!("{}  {}", l.text("完了", "Done"), format_bytes(r.output_bytes)), ACCENT),
+                            State::Failed(_) => (l.text("エラー / 再試行できます", "Failed / you can retry").to_string(), Color32::LIGHT_RED),
                         };
                         let response = ui.add_sized([ui.available_width(), 64.0], egui::Button::new(
                             RichText::new(format!("{}\n{status}", display_name(&item.path))).color(color))
@@ -405,38 +510,39 @@ impl Studio {
                 });
                 if let Some(i) = clicked { self.select(i); }
                 ui.separator();
-                ui.label(RichText::new("変換設定").strong());
-                ui.label(RichText::new("可逆圧縮  /  8・16 bit  /  透過対応").color(ACCENT).small());
-                ui.label(RichText::new("元の画素を保持します。容量が小さくなるとは限りません。").small().color(MUTED));
-                ui.horizontal(|ui| {
-                    if ui.add_enabled(!self.busy, egui::Button::new("保存先を選択")).clicked()
-                        && let Some(path) = rfd::FileDialog::new().pick_folder() { self.output_directory = Some(path); }
-                    if self.output_directory.is_some() && ui.add_enabled(!self.busy, egui::Button::new("解除")).clicked() { self.output_directory = None; }
+                ui.label(RichText::new(l.text("変換設定", "Conversion settings")).strong());
+                ui.label(RichText::new(l.text("可逆圧縮 / 8・16 bit / 透過対応", "Lossless / 8 & 16 bit / alpha")).color(ACCENT).small());
+                ui.label(RichText::new(l.text("元の画素を保持します。容量が小さくなるとは限りません。", "Preserves pixels. Files may become larger.")).small().color(MUTED));
+                ui.horizontal_wrapped(|ui| {
+                    if ui.add_enabled(!self.busy, egui::Button::new(l.text("保存先を選択", "Choose output folder"))).clicked()
+                        && let Some(path) = rfd::FileDialog::new().set_title(l.text("保存先フォルダーを選択", "Choose the output folder")).pick_folder() { self.output_directory = Some(path); }
+                    if self.output_directory.is_some() && ui.add_enabled(!self.busy, egui::Button::new(l.text("解除", "Reset"))).clicked() { self.output_directory = None; }
                 });
                 ui.label(RichText::new(self.output_directory.as_ref().map(|p| p.display().to_string())
-                    .unwrap_or_else(|| "保存先: 元画像と同じフォルダー".into())).small().color(MUTED));
+                    .unwrap_or_else(|| l.text("保存先: 元画像と同じフォルダー", "Output: same folder as the source").into())).small().color(MUTED));
                 let can_convert = self.items.iter().any(|i| is_convertible(&i.path) && !matches!(i.state, State::Done(_)));
                 if self.busy {
                     ui.add(egui::ProgressBar::new(self.processed as f32 / self.total.max(1) as f32).show_percentage());
                     let stopping = self.cancel.load(Ordering::Relaxed);
-                    if ui.add_enabled(!stopping, egui::Button::new(if stopping { "現在の画像が終わると停止します" } else { "変換を停止" })).clicked() {
+                    if ui.add_enabled(!stopping, egui::Button::new(if stopping { l.text("現在の画像が終わると停止します", "Stopping after the current image") } else { l.text("変換を停止", "Stop conversion") })).clicked() {
                         self.cancel.store(true, Ordering::Relaxed);
                     }
-                } else if ui.add_enabled(can_convert, egui::Button::new(RichText::new("JPEG XL に一括変換").color(Color32::from_rgb(12, 35, 28))).fill(ACCENT)
+                } else if ui.add_enabled(can_convert, egui::Button::new(RichText::new(l.text("JPEG XL に一括変換", "Convert all to JPEG XL")).color(Color32::from_rgb(12, 35, 28))).fill(ACCENT)
                     .min_size(Vec2::new(ui.available_width(), 42.0))).clicked() { self.start_conversion(ctx); }
-                ui.horizontal(|ui| {
-                    if ui.add_enabled(!self.busy && self.selected.is_some(), egui::Button::new("選択を削除")).clicked()
+                ui.horizontal_wrapped(|ui| {
+                    if ui.add_enabled(!self.busy && self.selected.is_some(), egui::Button::new(l.text("選択を削除", "Remove selected"))).clicked()
                         && let Some(i) = self.selected {
                         self.items.remove(i);
                         self.clear_preview();
                         if !self.items.is_empty() { self.select(i.min(self.items.len() - 1)); }
                     }
-                    if ui.add_enabled(!self.busy && !self.items.is_empty(), egui::Button::new("一覧をクリア")).clicked() {
+                    if ui.add_enabled(!self.busy && !self.items.is_empty(), egui::Button::new(l.text("一覧をクリア", "Clear list"))).clicked() {
                         self.items.clear(); self.clear_preview();
                     }
                 });
-                ui.label(RichText::new("EXIF・ICC等のメタデータは引き継ぎません。\nアニメーション・複数ページは先頭画像のみ。")
+                ui.label(RichText::new(l.text("EXIF・ICC等のメタデータは引き継ぎません。\nアニメーション・複数ページは先頭画像のみ。", "EXIF, ICC and other metadata are not retained.\nAnimations and multi-page files: first image only."))
                     .size(11.0).color(MUTED));
+                });
             });
     }
 
@@ -449,16 +555,20 @@ impl Studio {
     }
 
     fn viewer(&mut self, ctx: &egui::Context) {
+        let l = self.language;
         egui::CentralPanel::default().show(ctx, |ui| {
             ui.add_space(10.0);
             ui.horizontal(|ui| {
-                ui.heading("ビューアー");
+                ui.heading(l.text("ビューアー", "Viewer"));
                 if let Some(path) = &self.preview_path {
                     ui.label(RichText::new(display_name(path)).color(MUTED));
                 }
             });
             ui.horizontal_wrapped(|ui| {
-                if ui.selectable_label(self.fit, "画面に合わせる").clicked() {
+                if ui
+                    .selectable_label(self.fit, l.text("画面に合わせる", "Fit to window"))
+                    .clicked()
+                {
                     self.fit = true;
                 }
                 if ui
@@ -477,22 +587,22 @@ impl Studio {
                     self.zoom = (self.zoom * 1.25).min(8.0);
                 }
                 ui.label(format!("{:.0}%", self.zoom * 100.0));
-                ui.checkbox(&mut self.checkerboard, "透過背景");
+                ui.checkbox(&mut self.checkerboard, l.text("透過背景", "Checkerboard"));
                 if let Some(index) = self.selected
                     && let State::Done(report) = &self.items[index].state
                 {
                     let (source, output) = (self.items[index].path.clone(), report.output.clone());
-                    if ui.button("元画像").clicked() {
+                    if ui.button(l.text("元画像", "Original")).clicked() {
                         self.request_preview(source);
                     }
-                    if ui.button("変換後").clicked() {
+                    if ui.button(l.text("変換後", "Converted")).clicked() {
                         self.request_preview(output);
                     }
                 }
                 if ui
                     .add_enabled(
                         self.preview_path.is_some() && !self.export_busy,
-                        egui::Button::new("PNGに保存"),
+                        egui::Button::new(l.text("PNGに保存", "Save PNG")),
                     )
                     .clicked()
                 {
@@ -561,13 +671,17 @@ impl Studio {
                     });
                 ui.label(
                     RichText::new(format!(
-                        "{} × {} px  ·  Ctrl + ホイールで拡大  ·  スクロールで移動{}",
+                        "{} × {} px  ·  {}{}",
                         self.original_size[0],
                         self.original_size[1],
+                        l.text(
+                            "Ctrl + ホイールで拡大 · スクロールで移動",
+                            "Ctrl + wheel to zoom · scroll to pan"
+                        ),
                         if self.original_size[0] > self.texture_size[0] as u32
                             || self.original_size[1] > self.texture_size[1] as u32
                         {
-                            "  ·  プレビューは最大4096px"
+                            l.text(" · プレビューは最大4096px", " · preview limited to 4096px")
                         } else {
                             ""
                         }
@@ -580,20 +694,29 @@ impl Studio {
                     ui.add_space((ui.available_height() * 0.28).max(20.0));
                     if self.preview_busy || self.pending_preview.is_some() {
                         ui.spinner();
-                        ui.label("画像を読み込んでいます…");
+                        ui.label(l.text("画像を読み込んでいます…", "Loading image…"));
                     } else {
                         ui.label(
-                            RichText::new("JPEG XLを、そのまま開く。")
-                                .size(27.0)
-                                .strong(),
+                            RichText::new(
+                                l.text("JPEG XLを、そのまま開く。", "Open JPEG XL directly."),
+                            )
+                            .size(27.0)
+                            .strong(),
                         );
                         ui.add_space(12.0);
                         ui.label(
-                            RichText::new("画像をドロップするか、ライブラリから選択してください。")
-                                .color(MUTED),
+                            RichText::new(l.text(
+                                "画像をドロップするか、ライブラリから選択してください。",
+                                "Drop an image or select one from the library.",
+                            ))
+                            .color(MUTED),
                         );
                         ui.label(
-                            RichText::new("変換した画像も、この画面で確認できます。").color(MUTED),
+                            RichText::new(l.text(
+                                "変換した画像も、この画面で確認できます。",
+                                "Review your converted images in the same viewer.",
+                            ))
+                            .color(MUTED),
                         );
                     }
                 });
@@ -617,19 +740,20 @@ impl eframe::App for Studio {
             self.pick_files();
         }
         self.header(ctx);
+        let l = self.language;
         egui::TopBottomPanel::bottom("status").show(ctx, |ui| {
             ui.add_space(4.0);
-            ui.label(RichText::new(&self.message).small().color(MUTED));
+            ui.label(RichText::new(self.message.render(l)).small().color(MUTED));
             if let Some(index) = self.selected
                 && let State::Failed(message) = &self.items[index].state
             {
-                ui.colored_label(Color32::LIGHT_RED, message);
+                ui.colored_label(Color32::LIGHT_RED, l.error(message));
             }
             let mut dismiss = false;
             if let Some(error) = &self.error {
                 ui.horizontal_wrapped(|ui| {
-                    ui.colored_label(Color32::LIGHT_RED, error);
-                    dismiss = ui.small_button("閉じる").clicked();
+                    ui.colored_label(Color32::LIGHT_RED, error.render(l));
+                    dismiss = ui.small_button(l.text("閉じる", "Dismiss")).clicked();
                 });
             }
             if dismiss {

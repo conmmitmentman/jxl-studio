@@ -1,7 +1,10 @@
 # JXL Studio
 
-Rustで作った、JPEG XL（`.jxl`）への可逆変換と画像表示のためのデスクトップアプリです。
-日本語UIで画像をまとめて変換し、その場で変換前・変換後を確認できます。
+**日本語** | [English](README.en.md)
+
+Rustで作った、JPEG XL（`.jxl`）への可逆変換と画像表示のためのWindows・Androidアプリです。
+日本語・英語のUIで画像をまとめて変換し、その場で変換前・変換後を確認できます。
+表示言語はアプリの **日本語 / English** から切り替えられます。
 
 ![JXL StudioでJPEG XLを表示](docs/screenshot.jpg)
 
@@ -10,13 +13,14 @@ Rustで作った、JPEG XL（`.jxl`）への可逆変換と画像表示のため
 [Releases](https://github.com/conmmitmentman/jxl-studio/releases)のWindows x64版ZIPを展開して、`jxl-studio.exe`を起動してください。
 Rust・Python・`cjxl`などの別途インストールは不要です。CLIは`jxl-studio-cli.exe`です。
 
-**Android版:** [APKをダウンロード](https://github.com/conmmitmentman/jxl-studio/releases/download/android-v0.1.0/jxl-studio-android.apk)。Android 8.0以降のarm64 / x86_64端末に対応します。
+**Android版:** [APKをダウンロード](https://github.com/conmmitmentman/jxl-studio/releases/download/android-v0.1.1/jxl-studio-android.apk)。Android 8.0以降のarm64 / x86_64端末に対応します。
 Androidでは、標準ファイル選択・複数画像の可逆変換・JXL表示・ピンチ拡大・JXL/PNG保存が利用できます。
 使い方と対応範囲は[Android版の説明](android/README.md)、ビルドと署名は[Androidビルド手順](android/BUILDING.md)を参照してください。
 
 ## 機能
 
 - JPEG / PNG / WebP / GIF / BMP / TIFF → JPEG XLの可逆変換
+- 日本語・英語の表示切り替え
 - 8bit・16bit、グレースケール・RGB、アルファチャンネルの保持
 - ファイルの複数選択とドラッグ＆ドロップ、一括変換、保存先の選択
 - JPEG XLの直接表示、変換前後の切り替え

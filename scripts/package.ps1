@@ -3,8 +3,11 @@ Set-Location (Split-Path $PSScriptRoot -Parent)
 $packageName = 'jxl-studio-windows-x64'
 $packagePath = Join-Path (Get-Location) "dist/$packageName"
 New-Item -ItemType Directory -Path $packagePath -Force | Out-Null
-Copy-Item target/release/jxl-studio.exe,target/release/jxl-studio-cli.exe,README.md,LICENSE,THIRD_PARTY_NOTICES.md -Destination $packagePath
+Copy-Item target/release/jxl-studio.exe,target/release/jxl-studio-cli.exe,README.md,README.en.md,LICENSE,THIRD_PARTY_NOTICES.md -Destination $packagePath
 if (Test-Path docs) { Copy-Item docs -Destination $packagePath -Recurse -Force }
+$androidDocs = Join-Path $packagePath "android"
+New-Item -ItemType Directory -Path $androidDocs -Force | Out-Null
+Copy-Item android/README.md,android/README.en.md,android/BUILDING.md -Destination $androidDocs
 
 # Copy the licenses of the complete locked dependency graph, including embedded fonts.
 $metadata = cargo metadata --locked --format-version 1 | ConvertFrom-Json
