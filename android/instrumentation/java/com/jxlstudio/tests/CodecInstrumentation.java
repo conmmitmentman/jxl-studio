@@ -8,6 +8,7 @@ import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Color;
 import android.os.Bundle;
+import android.net.Uri;
 import android.util.Log;
 import android.view.View;
 import android.view.ViewGroup;
@@ -21,7 +22,11 @@ import org.json.JSONObject;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.nio.file.Files;
+import java.lang.reflect.Field;
+import java.lang.reflect.Method;
 import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
@@ -29,6 +34,7 @@ import java.util.concurrent.TimeUnit;
 public final class CodecInstrumentation extends Instrumentation {
     private static final int WIDTH = 17;
     private static final int HEIGHT = 19;
+    private Activity activeActivity;
 
     @Override
     public void onCreate(Bundle arguments) {
@@ -42,10 +48,11 @@ public final class CodecInstrumentation extends Instrumentation {
         try {
             testCodecRoundTrip();
             testActivityLaunch();
+            testImportAfterStop();
             result.putString("jxlResult", "PASS");
             result.putString("stream", "jxlResult=PASS\nJXL Android instrumentation passed: real JNI conversion, "
                     + "dimensions, transparent and opaque pixels, preview, PNG export, Japanese paths, "
-                    + "no-overwrite errors, preview size limits, MainActivity launch, and persistent Japanese/English switching.\n");
+                    + "no-overwrite errors, preview size limits, MainActivity launch, persistent Japanese/English switching, and importing after stopping.\n");
             finish(Activity.RESULT_OK, result);
         } catch (Throwable failure) {
             result.putString("jxlResult", "FAIL");
@@ -221,6 +228,84 @@ public final class CodecInstrumentation extends Instrumentation {
             } catch (Throwable failure) { restartFailure[0] = failure; }
         });
         if (restartFailure[0] != null) throw new AssertionError("Language persistence test failed", restartFailure[0]);
+        activeActivity = restarted;
+    }
+
+    /** A completed Stop must not cancel a later, independent file import. */
+    private void testImportAfterStop() throws Exception {
+        final Activity activity = activeActivity;
+        check(activity != null && !activity.isFinishing(), "The restarted activity is unavailable for import testing");
+        final File fixture = new File(getTargetContext().getCacheDir(), "元画像-import-after-stop-" + System.nanoTime() + ".png");
+        Bitmap pixels = Bitmap.createBitmap(WIDTH, HEIGHT, Bitmap.Config.ARGB_8888);
+        pixels.eraseColor(Color.rgb(12, 45, 200));
+        try (FileOutputStream output = new FileOutputStream(fixture)) {
+            check(pixels.compress(Bitmap.CompressFormat.PNG, 100, output), "Cannot write the import fixture");
+        }
+        pixels.recycle();
+        final Object[] sessionHolder = new Object[1];
+        final Field[] busyField = new Field[1];
+        final Throwable[] startFailure = new Throwable[1];
+        runOnMainSync(() -> {
+            try {
+                Object session = accessibleField(activity, "session").get(activity);
+                sessionHolder[0] = session;
+                busyField[0] = accessibleField(session, "busy");
+                check(!busyField[0].getBoolean(session), "The test activity is already busy");
+                check(((List<?>) accessibleField(session, "items").get(session)).isEmpty(),
+                        "The restarted activity should begin with an empty image list");
+                accessibleField(session, "cancel").setBoolean(session, true);
+                Method importImages = activity.getClass().getDeclaredMethod("importImages", List.class);
+                importImages.setAccessible(true);
+                importImages.invoke(activity, Collections.singletonList(Uri.fromFile(fixture)));
+                check(busyField[0].getBoolean(session), "The new import did not start");
+            } catch (Throwable failure) { startFailure[0] = failure; }
+        });
+        if (startFailure[0] != null) throw new AssertionError("Cannot start the import-after-stop regression", startFailure[0]);
+
+        final Bitmap[] displayed = new Bitmap[1];
+        final File[] importedSource = new File[1];
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(20);
+        while (true) {
+            final boolean[] idle = new boolean[1];
+            final Throwable[] importFailure = new Throwable[1];
+            runOnMainSync(() -> {
+                try {
+                    Object session = sessionHolder[0];
+                    idle[0] = !busyField[0].getBoolean(session);
+                    if (!idle[0]) return;
+                    String message = String.valueOf(accessibleField(session, "message").get(session));
+                    List<?> items = (List<?>) accessibleField(session, "items").get(session);
+                    check(items.size() == 1, "Import after Stop added " + items.size() + " images; status=" + message);
+                    check(accessibleField(session, "selected").getInt(session) == 0, "The new image was not selected");
+                    displayed[0] = (Bitmap) accessibleField(session, "bitmap").get(session);
+                    check(displayed[0] != null && !displayed[0].isRecycled(), "The imported image preview is missing; status=" + message);
+                    check(accessibleField(session, "width").getInt(session) == WIDTH
+                                    && accessibleField(session, "height").getInt(session) == HEIGHT,
+                            "The imported image dimensions changed");
+                    Object viewer = accessibleField(activity, "viewer").get(activity);
+                    check(accessibleField(viewer, "bitmap").get(viewer) == displayed[0],
+                            "The imported preview was not sent to the displayed viewer");
+                    importedSource[0] = (File) accessibleField(items.get(0), "input").get(items.get(0));
+                } catch (Throwable failure) { importFailure[0] = failure; }
+            });
+            if (importFailure[0] != null) throw new AssertionError("Import-after-stop regression failed", importFailure[0]);
+            if (idle[0]) break;
+            check(System.nanoTime() < deadline, "Import after Stop did not finish in time");
+            Thread.sleep(25);
+        }
+        check(fixture.isFile() && importedSource[0] != null && importedSource[0].isFile(), "Import source files are missing");
+        check(!fixture.equals(importedSource[0]), "Import must copy the selected source into its session cache");
+        check(Arrays.equals(Files.readAllBytes(fixture.toPath()), Files.readAllBytes(importedSource[0].toPath())),
+                "Import changed the source image bytes");
+        Bitmap expected = decode(fixture);
+        assertPixelIdentity(expected, displayed[0], "Imported preview after Stop");
+        expected.recycle();
+    }
+
+    private static Field accessibleField(Object instance, String name) throws Exception {
+        Field field = instance.getClass().getDeclaredField(name);
+        field.setAccessible(true);
+        return field;
     }
 
     private static Spinner findSpinner(View root) {

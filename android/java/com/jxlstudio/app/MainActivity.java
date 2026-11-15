@@ -370,6 +370,7 @@ public final class MainActivity extends Activity {
         if (uris.isEmpty() || session.busy) return;
         final Session work = session;
         final ContentResolver resolver = getContentResolver();
+        work.cancel = false;
         work.busy = true; work.message = "画像を読み込んでいます…"; refresh();
         work.worker.execute(() -> {
             ArrayList<Item> imported = new ArrayList<>();
@@ -392,7 +393,7 @@ public final class MainActivity extends Activity {
     }
 
     private static Item importImage(ContentResolver resolver, Uri uri, File directory) throws Exception {
-        String name = "image";
+        String name = "file".equals(uri.getScheme()) ? new File(uri.getPath()).getName() : "image";
         try (Cursor cursor = resolver.query(uri, new String[]{OpenableColumns.DISPLAY_NAME}, null, null, null)) {
             if (cursor != null && cursor.moveToFirst() && !cursor.isNull(0)) name = cursor.getString(0);
         }
