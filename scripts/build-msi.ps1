@@ -100,7 +100,9 @@ $productCode = Get-StableGuid "JxlStudio.Product.x64:$version"
 $output = Join-Path $dist 'jxl-studio-windows-x64.msi'
 & (Join-Path $WixDirectory 'candle.exe') -nologo -arch x64 "-dProductVersion=$version" "-dProductCode=$productCode" "-dLicenseRtf=$licenseRtf" -out "$work\" (Join-Path $repository 'installer/Product.wxs') $fragment
 if ($LASTEXITCODE -ne 0) { throw "WiX compilation failed ($LASTEXITCODE)" }
-& (Join-Path $WixDirectory 'light.exe') -nologo -ext (Join-Path $WixDirectory 'WixUIExtension.dll') -cultures:en-us -out $output (Join-Path $work 'Product.wixobj') (Join-Path $work 'PackageFiles.wixobj')
+# ICE91 warns about per-user files in packages that might be installed per-machine.
+# This package deliberately supports only a per-user installation; keep all other ICE checks.
+& (Join-Path $WixDirectory 'light.exe') -nologo -sice:ICE91 -ext (Join-Path $WixDirectory 'WixUIExtension.dll') -cultures:en-us -out $output (Join-Path $work 'Product.wixobj') (Join-Path $work 'PackageFiles.wixobj')
 if ($LASTEXITCODE -ne 0) { throw "WiX linking or MSI validation failed ($LASTEXITCODE)" }
 $hash = (Get-FileHash -LiteralPath $output -Algorithm SHA256).Hash.ToLowerInvariant()
 "$hash  jxl-studio-windows-x64.msi" | Set-Content -LiteralPath (Join-Path $dist 'msi-SHA256SUMS.txt') -Encoding utf8NoBOM
