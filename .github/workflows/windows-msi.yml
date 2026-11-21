@@ -1,0 +1,50 @@
+name: Windows MSI
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'installer/**'
+      - 'scripts/build-msi.ps1'
+      - 'scripts/test-msi.ps1'
+      - '.github/workflows/windows-msi.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  installer:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download and verify the released application payload
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Path dist -Force | Out-Null
+          $release = 'https://github.com/conmmitmentman/jxl-studio/releases/download/v0.1.1'
+          Invoke-WebRequest "$release/jxl-studio-windows-x64.zip" -OutFile dist/jxl-studio-windows-x64.zip
+          Invoke-WebRequest "$release/SHA256SUMS.txt" -OutFile dist/SHA256SUMS.txt
+          $expected = ((Get-Content dist/SHA256SUMS.txt -Raw).Trim() -split '\s+')[0]
+          $actual = (Get-FileHash dist/jxl-studio-windows-x64.zip -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($actual -ne $expected) { throw 'Released ZIP checksum mismatch' }
+          $package = 'dist/jxl-studio-windows-x64'
+          Expand-Archive dist/jxl-studio-windows-x64.zip -DestinationPath $package
+          Copy-Item README.md,README.en.md -Destination $package -Force
+          Copy-Item docs/RELEASE_NOTES.md -Destination "$package/docs/RELEASE_NOTES.md" -Force
+      - name: Build per-user MSI
+        shell: pwsh
+        run: ./scripts/build-msi.ps1
+      - name: Verify install, repair and uninstall
+        shell: pwsh
+        run: ./scripts/test-msi.ps1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: jxl-studio-windows-msi
+          path: |
+            dist/jxl-studio-windows-x64.msi
+            dist/msi-SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: msi-test-logs
+          path: dist/msi-test-logs/
+          if-no-files-found: ignore

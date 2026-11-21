@@ -10,7 +10,9 @@ Rustで作った、JPEG XL（`.jxl`）への可逆変換と画像表示のため
 
 ## ダウンロード
 
-[Releases](https://github.com/conmmitmentman/jxl-studio/releases)のWindows x64版ZIPを展開して、`jxl-studio.exe`を起動してください。
+**Windows版:** [MSIインストーラーをダウンロード](https://github.com/conmmitmentman/jxl-studio/releases/download/v0.1.1/jxl-studio-windows-x64.msi)して実行してください。現在のユーザー用にインストールされ、スタートメニューから起動できます。削除はWindowsの「インストールされているアプリ」から行えます。
+
+インストールせず使う場合は、[Releases](https://github.com/conmmitmentman/jxl-studio/releases)のWindows x64版ZIPを展開して、`jxl-studio.exe`を起動してください。
 Rust・Python・`cjxl`などの別途インストールは不要です。CLIは`jxl-studio-cli.exe`です。
 
 **Android版:** [APKをダウンロード](https://github.com/conmmitmentman/jxl-studio/releases/download/android-v0.1.1/jxl-studio-android.apk)。Android 8.0以降のarm64 / x86_64端末に対応します。
@@ -56,7 +58,7 @@ Androidでは、標準ファイル選択・複数画像の可逆変換・JXL表�
 - 整数8/16bitの静止画を対象とします。HDR入力・浮動小数点入力・HDRモニター出力は未対応です。JXLの表示とPNG出力はSDRのsRGBへ変換します。
 - デスクトップ版の入力ファイルは512 MiB、画像は6400万画素までです。Android版は1ファイル128 MiBまでです。JXL内部バッファには1 GiBの割当制限も設けています。アプリ全体のメモリー上限を保証するものではありません。
 - デスクトップ版ビューアーのテクスチャは最大4096px、Android版のプレビューは最大2048pxです。表示サイズ・拡大率の基準は元画像ですが、大きな画像の拡大表示は縮小プレビューの拡大になります。変換・PNG書き出しは元の解像度を使用します。
-- フォルダーの再帰追加、OSのファイル関連付け、インストーラーは未対応です。
+- フォルダーの再帰追加、OSのファイル関連付けは未対応です。
 
 ## 開発
 
@@ -75,6 +77,8 @@ Linux（Ubuntu）では`sudo apt-get install libxkbcommon-dev libwayland-dev lib
 日本語フォントはWindowsのメイリオ / 游ゴシック、macOSのヒラギノ、LinuxのNoto Sans CJKの代表的なパスから読み込みます。
 Linuxでは`fonts-noto-cjk`もインストールしてください。
 
+Windowsの配布ファイルは、リリースビルド後に`./scripts/package.ps1`でZIPを、`./scripts/build-msi.ps1`でMSIを作成します。MSIの作成にはWiX Toolset 3.14.1を使用します。
+
 エンコーダーは[zune-jpegxl](https://docs.rs/zune-jpegxl/)、デコーダーは[jxl-oxide](https://docs.rs/jxl-oxide/)、
 GUIは[egui / eframe](https://github.com/emilk/egui)を使用します。JXLの処理は外部コマンドを呼ばず、Rustのライブラリで行います。
 `Cargo.lock`を含め、依存バージョンを固定しています。
@@ -84,7 +88,7 @@ GUIは[egui / eframe](https://github.com/emilk/egui)を使用します。JXLの�
 
 異なる実装のエンコーダーとデコーダーを使い、8/16bit・RGB・グレースケール・透過・奇数サイズ・複数グループサイズで画素の完全一致を確認します。
 各入力形式、EXIFの向き、日本語のパス、同名ファイル、破損ファイル、PNG書き出し、実際のCLI実行も検証します。
-GitHub ActionsでWindows・Linuxのテストと静的チェックを実行し、`v*`タグでWindows配布ZIPとSHA-256を作成します。
+GitHub ActionsでWindows・Linuxのテストと静的チェックを実行し、`v*`タグでWindows配布ZIP・MSIとSHA-256を作成します。
 
 ## ライセンス
 

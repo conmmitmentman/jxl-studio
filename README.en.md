@@ -10,7 +10,9 @@ Use the app's **日本語 / English** control to switch the display language.
 
 ## Download
 
-Download the Windows x64 ZIP from [Releases](https://github.com/conmmitmentman/jxl-studio/releases), extract it, and run `jxl-studio.exe`.
+**Windows:** [Download the MSI installer](https://github.com/conmmitmentman/jxl-studio/releases/download/v0.1.1/jxl-studio-windows-x64.msi) and run it. The app installs for the current user and can be opened from the Start menu. Uninstall it through Windows **Installed apps**.
+
+For portable use, download the Windows x64 ZIP from [Releases](https://github.com/conmmitmentman/jxl-studio/releases), extract it, and run `jxl-studio.exe`.
 You do not need to install Rust, Python, or external JPEG XL tools such as `cjxl`. The command-line application is `jxl-studio-cli.exe`.
 
 **Android:** [Download the APK](https://github.com/conmmitmentman/jxl-studio/releases/download/android-v0.1.1/jxl-studio-android.apk). It supports Android 8.0 and later on arm64 / x86_64 devices.
@@ -56,7 +58,7 @@ You can also drop images onto the executable or supply their paths as command-li
 - The app targets static images with 8-bit or 16-bit integer samples. HDR input, floating-point input, and HDR monitor output are not supported. JXL display and PNG export use SDR sRGB.
 - On desktop, input files are limited to 512 MiB and images to 64 million pixels. JXL internal buffer allocations also have a 1 GiB limit; this is not a limit on the application's total memory use. Android has smaller input-file and batch limits listed in its guide.
 - Desktop viewer textures are limited to 4096 pixels per side. Display dimensions and zoom percentages refer to the original image, but zooming into larger images enlarges the reduced preview. Conversion and PNG export retain the original resolution. Android previews are limited to 2048 pixels per side.
-- Recursive folder import, OS file associations, and an installer are not provided.
+- Recursive folder import and OS file associations are not provided.
 
 ## Development
 
@@ -75,6 +77,8 @@ On Ubuntu, install `libxkbcommon-dev libwayland-dev libgl1-mesa-dev`.
 Japanese font fallback checks common locations for Meiryo/Yu Gothic on Windows, Hiragino on macOS, and Noto Sans CJK on Linux.
 Install `fonts-noto-cjk` on Linux if you want Japanese text support.
 
+On Windows, run `./scripts/package.ps1` after the release build to create the ZIP, then `./scripts/build-msi.ps1` to create the MSI. MSI packaging uses WiX Toolset 3.14.1.
+
 Encoding uses [zune-jpegxl](https://docs.rs/zune-jpegxl/), decoding uses [jxl-oxide](https://docs.rs/jxl-oxide/),
 and the desktop GUI uses [egui / eframe](https://github.com/emilk/egui). JPEG XL processing runs through Rust libraries without external codec commands.
 Dependency versions are pinned in `Cargo.lock`.
@@ -84,7 +88,7 @@ The bundled encoder source includes fixes for one-pixel images and 16-bit alpha;
 
 Round-trip tests use independently implemented encoders and decoders to check exact pixel equality for 8/16-bit RGB, grayscale, transparency, odd dimensions, and multiple group sizes.
 Tests also cover every advertised input format, EXIF orientation, Japanese paths, duplicate filenames, corrupt files, PNG export, and real CLI processes.
-GitHub Actions runs Windows/Linux tests and static checks. Tags matching `v*` build the Windows distribution ZIP and SHA-256 checksum.
+GitHub Actions runs Windows/Linux tests and static checks. Tags matching `v*` build the Windows distribution ZIP, MSI installer, and SHA-256 checksums.
 The Android workflow builds APKs and runs Android-specific JNI and emulator tests.
 
 ## License
