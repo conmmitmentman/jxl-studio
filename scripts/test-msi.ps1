@@ -55,16 +55,50 @@ function Read-MsiProperty([string]$Name) {
     }
 }
 
+function Get-ProductRegistration([string]$Code) {
+    $installer = $null
+    $products = $null
+    $contexts = [Collections.Generic.List[int]]::new()
+    try {
+        $installer = New-Object -ComObject WindowsInstaller.Installer
+        $state = [int]$installer.GetType().InvokeMember('ProductState', 'GetProperty', $null, $installer, @($Code))
+        # ProductsEx with an empty SID queries this user plus the machine context.
+        $products = $installer.GetType().InvokeMember('ProductsEx', 'GetProperty', $null, $installer, @($Code, '', 7))
+        foreach ($product in $products) {
+            try {
+                [void]$contexts.Add([int]$product.GetType().InvokeMember('Context', 'GetProperty', $null, $product, $null))
+            } finally { [void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($product) }
+        }
+        $name = $null
+        $assignment = $null
+        # These ProductInfo attributes require an installed product (state 5).
+        if ($state -eq 5) {
+            $name = $installer.GetType().InvokeMember('ProductInfo', 'GetProperty', $null, $installer, @($Code, 'InstalledProductName'))
+            $assignment = $installer.GetType().InvokeMember('ProductInfo', 'GetProperty', $null, $installer, @($Code, 'AssignmentType'))
+        }
+        return [pscustomobject]@{
+            State = $state
+            InstalledProductName = $name
+            AssignmentType = $assignment
+            Contexts = $contexts.ToArray()
+        }
+    } finally {
+        if ($null -ne $products) { [void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($products) }
+        if ($null -ne $installer) { [void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($installer) }
+    }
+}
+
 $productCode = Read-MsiProperty 'ProductCode'
 if ((Read-MsiProperty 'ProductName') -ne 'JXL Studio') { throw 'Unexpected MSI product name.' }
 $installDirectory = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'Programs\JXL Studio'
 $shortcutDirectory = Join-Path ([Environment]::GetFolderPath('Programs')) 'JXL Studio'
 $shortcut = Join-Path $shortcutDirectory 'JXL Studio.lnk'
-$uninstallKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\$productCode"
 $markerKey = 'HKCU:\Software\JXLStudio\Installer'
 
 # Never replace an existing installation, even on a misconfigured runner.
-if ((Test-Path -LiteralPath $installDirectory) -or (Test-Path -LiteralPath $uninstallKey) `
+$existingRegistration = Get-ProductRegistration $productCode
+if ($existingRegistration.State -ne -1 -or $existingRegistration.Contexts.Count -ne 0 `
+    -or (Test-Path -LiteralPath $installDirectory) `
     -or (Test-Path -LiteralPath $shortcutDirectory) -or (Test-Path -LiteralPath $markerKey)) {
     throw 'The runner already contains a JXL Studio installation; refusing to modify it.'
 }
@@ -99,9 +133,13 @@ function Assert-InstalledPayload {
         if ($null -ne $link) { [void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($link) }
         [void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($shell)
     }
-    $uninstall = Get-ItemProperty -LiteralPath $uninstallKey
-    if ($uninstall.DisplayName -ne 'JXL Studio' -or [string]::IsNullOrWhiteSpace($uninstall.UninstallString)) {
-        throw 'The current-user Windows uninstall registration is missing or incorrect.'
+    # Use Windows Installer's public API instead of assuming an ARP registry layout.
+    # AssignmentType=0 is per-user; contexts 1/2 are user-managed/unmanaged, 4 is machine.
+    $registration = Get-ProductRegistration $productCode
+    if ($registration.State -ne 5 -or $registration.InstalledProductName -ne 'JXL Studio' `
+        -or $registration.AssignmentType -ne '0' -or $registration.Contexts.Count -ne 1 `
+        -or $registration.Contexts[0] -notin @(1, 2)) {
+        throw 'Windows Installer did not register this product as installed for the current user.'
     }
     if ((Get-ItemProperty -LiteralPath $markerKey -Name Installed).Installed -ne 1) {
         throw 'The current-user installer component marker is missing.'
@@ -119,12 +157,16 @@ try {
     Invoke-Msi @('/fa', (Quote-Argument $MsiPath)) 'repair.log'
     Assert-InstalledPayload
 } finally {
-    if ($installed -or (Test-Path -LiteralPath $uninstallKey)) {
+    if ($installed -or (Get-ProductRegistration $productCode).State -ne -1) {
         Invoke-Msi @('/x', (Quote-Argument $MsiPath)) 'uninstall.log'
     }
 }
 
-foreach ($removedPath in @($installDirectory, $shortcutDirectory, $uninstallKey, $markerKey)) {
+foreach ($removedPath in @($installDirectory, $shortcutDirectory, $markerKey)) {
     if (Test-Path -LiteralPath $removedPath) { throw "Uninstall left installer-owned content behind: $removedPath" }
+}
+$removedRegistration = Get-ProductRegistration $productCode
+if ($removedRegistration.State -ne -1 -or $removedRegistration.Contexts.Count -ne 0) {
+    throw 'Uninstall left the product registered with Windows Installer.'
 }
 Write-Host "MSI smoke test passed: $($payload.Count) files, per-user installation, shortcut, repair and clean uninstall."
