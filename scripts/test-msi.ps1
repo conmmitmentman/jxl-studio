@@ -43,12 +43,12 @@ function Read-MsiProperty([string]$Name) {
         $installer = New-Object -ComObject WindowsInstaller.Installer
         $database = $installer.OpenDatabase($MsiPath, 0)
         $view = $database.OpenView("SELECT ``Value`` FROM ``Property`` WHERE ``Property``='$Name'")
-        $view.Execute()
+        [void]$view.Execute()
         $record = $view.Fetch()
         if ($null -eq $record) { throw "MSI property $Name was not found." }
         return $record.GetType().InvokeMember('StringData', 'GetProperty', $null, $record, @(1))
     } finally {
-        if ($null -ne $view) { $view.Close() }
+        if ($null -ne $view) { [void]$view.Close() }
         foreach ($comObject in @($record, $view, $database, $installer)) {
             if ($null -ne $comObject) { [void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($comObject) }
         }
